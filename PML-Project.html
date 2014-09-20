@@ -55,23 +55,19 @@ if (window.hljs && document.readyState && document.readyState === "complete") {
 </div>
 
 
-<pre class="r"><code>library(knitr)
-library(xtable)
-library(ggplot2)
-library(plyr)
-library(caret)</code></pre>
-<pre><code>## Loading required package: lattice</code></pre>
-<pre class="r"><code>library(outliers)
-options(xtable.comment = FALSE,scipen=2)</code></pre>
+<pre class="r"><code>library(caret)</code></pre>
+<pre><code>## Loading required package: lattice
+## Loading required package: ggplot2</code></pre>
+<pre class="r"><code>library(outliers)</code></pre>
 <div id="abstract" class="section level1">
 <h1>Abstract</h1>
-<p>This document analyses the data obtained from the <a href="http://groupware.les.inf.puc-rio.br/har">Human Activity Recognition</a> project in order to define a predictive model to assess accurately the correctness of the barbell lifts performed by the six participants by means of accelerometers on belt, forearm, arm and dumbell of 6. Results confirm that one of the best models to predict <strong>classe</strong> position is XXX including as covariates XXXX giving XXXX error rate.</p>
+<p>This document analyses the data obtained from the <a href="http://groupware.les.inf.puc-rio.br/har">Human Activity Recognition</a> project in order to define a predictive model to assess accurately the correctness of the barbell lifts performed by the six participants by means of accelerometers on belt, forearm, arm and dumbell. Results confirm that one of the best models to predict <strong>classe</strong> value is Random Forest using 44 predictors with an accuracy over 99%.</p>
 </div>
 <div id="data-exploration" class="section level1">
 <h1>Data Exploration</h1>
 <p>Both the training and tests sets are available on the same folder of the repository.</p>
 <pre class="r"><code>data &lt;- read.csv(&quot;pml-training.csv&quot;, row.names = 1) # First column (X) contains measurement ID</code></pre>
-<p>There are 159 variables (including a measurement ID) and 19622 measurements in the training set. There are 5 different values for the outcome <em>classe</em> (A, B, C, D, E). As there are many variables, would be interesting not to pick them all at once to create a model so first of all some removal of meaningless variables due to its emptyness could be performed.</p>
+<p>There are 159 variables (plus the index column <em>X</em> that becomes the row index) and 19622 measurements in the training set. There are 5 different values for the outcome <em>classe</em> (A, B, C, D, E). As there are many variables, would be interesting not to pick them all at once to create a model so first of all some removal of meaningless variables due to its emptyness could be performed.</p>
 <pre class="r"><code>na_cols&lt;-sapply(data,function(data){sum(is.na(data)|data==&quot;&quot;)}) #Flagging NAs or empty values
 data_na_clean&lt;-data[,!(na_cols/dim(data)[1] &gt; 0.8)] #Removing empty columns above 80%
 rm(na_cols)</code></pre>
@@ -79,13 +75,13 @@ rm(na_cols)</code></pre>
 <pre class="r"><code>data_nzv&lt;-nearZeroVar(data_na_clean,saveMetrics=TRUE)
 data_nzv_clean&lt;-data_na_clean[,data_nzv$nzv==FALSE]
 rm(data_na_clean)
-data_clean&lt;-data_nzv_clean[,-c(1,4)]
+data_clean&lt;-data_nzv_clean[,-c(1,4)] #Removal of user-name and cvtd_timestamp
 rm(data_nzv_clean)</code></pre>
-<p>A total of 1 column(s) seem not to have much variation. Assuming that there is no correlation between the participants (<em>user_name</em>) or the date (*cvtd_timestamp**) and their movements (<em>classe</em>), a final subset becomes with 56 columns.</p>
+<p>A total of 1 column(s) seem not to have much variation. Assuming that there is no correlation between the participants (<em>user_name</em>) or the date (<em>cvtd_timestamp</em>) and their movements (<em>classe</em>), these two columns also can be discarded. The final subset holds 56 columns.</p>
 </div>
 <div id="modelling" class="section level1">
 <h1>Modelling</h1>
-<p>For modelling, first the input data is splitted into three groups: training (60%), test (20%) and validation (20%). <strong>XXX The reason for validationXXX</strong></p>
+<p>For modelling, first the input data is splitted into three groups: training (60%), test (20%) and validation (20%).</p>
 <pre class="r"><code>rm(data_nzv)
 set.seed(8484)
 IndexTrain&lt;-createDataPartition(y=data_clean$classe, p=.8, list=FALSE)
@@ -95,42 +91,28 @@ IndexValid&lt;-createDataPartition(y=train$classe, p=.2, list=FALSE)
 valid&lt;-train[IndexValid,]
 train&lt;-train[-IndexValid,]</code></pre>
 <p>There are two factors that should be addressed so to achieve a good model. The first one is to mitigate the impact of the outliers from within the dataset. The second one is to discard highly correlated covariates which would not bring any added value to the model.</p>
-<pre class="r"><code>outliers&lt;-as.data.frame(outlier(train[,-length(train)], logical=TRUE))
+<pre class="r"><code>outliers&lt;-as.data.frame(outlier(train[,-length(train)], logical=TRUE)) #Outliers for covariates but output
 #summary(outliers)
-train_out_clean&lt;-as.data.frame(mapply(function(outliers,dataset){ifelse(outliers==TRUE,NA,dataset)},outliers,train[,-length(train)]))
-train&lt;-cbind(train_out_clean,classe=train[,length(train)])
-train&lt;-na.omit(train)
+train_out_clean&lt;-as.data.frame(mapply(function(outliers,dataset){ifelse(outliers==TRUE,NA,dataset)},outliers,train[,-length(train)])) ##Replace NA on the identified outliers
+train&lt;-cbind(train_out_clean,classe=train[,length(train)]) ##Append the missing classe column previously discarded
+train&lt;-na.omit(train) ##Discarding all the measurements that contain any NA
 rm(outliers)
-rm(train_out_clean)
-
-#train_zero&lt;-train[0,]
-#train_out_cleaned&lt;-merge(train_zero,as.data.frame(outliers))
-####
-#BB&lt;-mapply(function(outB,B){ifelse(outB==TRUE,NA,B)},outB,B)
-#B_empty&lt;-B[0,] #Preserve data frame structure
-#dim(BB)&lt;-c(3,3)
-#B_empty&lt;-as.data.frame(BB)</code></pre>
-<p>The outliers are usually causing big impact on models so it can be interesting to just get rid of them. Several options could be applied such as providing an average although for the sake of not populating data which is not truly coming from the observations seems better to replace it with a NA.</p>
+rm(train_out_clean)</code></pre>
+<p>The outliers are usually causing big impact on models so it can be interesting to just get rid of them. Several options could be applied such as providing an average although for the sake of not populating data which is not truly coming from the observations seems better to replace it with a NA and then filter all the measurements that include at leat one NA. For the calculation of the outliers, the output is put aside to perform the analysis and placed back upon the replacement of NAs is performed.</p>
+<p>Another source for optimisation comes by the highly correlated covariates.</p>
 <pre class="r"><code>coe_cor&lt;-abs(cor(train[,-length(train)])) #Predictors correlation but the output (classe)
 diag(coe_cor)&lt;-0 # Removing self-correlations
 coe_cor_high &lt;- findCorrelation(coe_cor, cutoff=0.8, verbose=FALSE)
 train&lt;-train[,-coe_cor_high]</code></pre>
-<p>At least 11 variables seem to have a correlation higher to 80% and would not provide much gain on any predictive method so they are removed.</p>
+<p>At least 11 variables seem to have a correlation higher to 80% and would not provide much gain on any predictive method, so they are removed.</p>
 <p>Finally the dataset reduced from the original 159 variables to 45 and having 12408 measurements from the originally defined training dataset.</p>
-<p><strong>A very good model could be Random Forest with cross-validation.</strong></p>
+<p>A very good model could be Random Forest with cross-validation.</p>
 <pre class="r"><code>set.seed(8484)
-modRF &lt;- train(classe ~ ., method='rf', trControl=trainControl(method = &quot;cv&quot;, number = 4), train)</code></pre>
-<pre><code>## Loading required package: randomForest
-## randomForest 4.6-10
-## Type rfNews() to see new features/changes/bug fixes.
-## 
-## Attaching package: 'randomForest'
-## 
-## The following object is masked from 'package:outliers':
-## 
-##     outlier</code></pre>
-<pre class="r"><code>predRF &lt;- predict(modRF, test) #Testing
-confusionMatrix(predRF, test$classe)</code></pre>
+modRF &lt;- train(classe ~ ., method='rf', trControl=trainControl(method = &quot;cv&quot;, number = 5), train)
+
+predRF &lt;- predict(modRF, test) #Testing
+cmt&lt;-confusionMatrix(predRF, test$classe)
+cmt</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
@@ -162,22 +144,23 @@ confusionMatrix(predRF, test$classe)</code></pre>
 ## Detection Rate          0.284    0.193    0.174    0.163    0.184
 ## Detection Prevalence    0.284    0.193    0.175    0.163    0.184
 ## Balanced Accuracy       1.000    0.999    0.998    0.998    1.000</code></pre>
-<pre class="r"><code>predRFVal &lt;- predict(modRF, valid) #Cross-validation
-confusionMatrix(predRFVal, valid$classe)</code></pre>
+<pre class="r"><code>predRFVal &lt;- predict(modRF, valid) #Final validation
+cmv&lt;-confusionMatrix(predRFVal, valid$classe)
+cmv</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
 ## Prediction   A   B   C   D   E
 ##          A 893   0   0   0   0
-##          B   0 606   1   0   0
-##          C   0   2 547   0   0
+##          B   0 607   1   0   0
+##          C   0   1 547   0   0
 ##          D   0   0   0 515   0
 ##          E   0   0   0   0 578
 ## 
 ## Overall Statistics
 ##                                     
 ##                Accuracy : 0.999     
-##                  95% CI : (0.997, 1)
+##                  95% CI : (0.998, 1)
 ##     No Information Rate : 0.284     
 ##     P-Value [Acc &gt; NIR] : &lt;2e-16    
 ##                                     
@@ -187,15 +170,15 @@ confusionMatrix(predRFVal, valid$classe)</code></pre>
 ## Statistics by Class:
 ## 
 ##                      Class: A Class: B Class: C Class: D Class: E
-## Sensitivity             1.000    0.997    0.998    1.000    1.000
-## Specificity             1.000    1.000    0.999    1.000    1.000
-## Pos Pred Value          1.000    0.998    0.996    1.000    1.000
-## Neg Pred Value          1.000    0.999    1.000    1.000    1.000
+## Sensitivity             1.000    0.998    0.998    1.000    1.000
+## Specificity             1.000    1.000    1.000    1.000    1.000
+## Pos Pred Value          1.000    0.998    0.998    1.000    1.000
+## Neg Pred Value          1.000    1.000    1.000    1.000    1.000
 ## Prevalence              0.284    0.194    0.174    0.164    0.184
 ## Detection Rate          0.284    0.193    0.174    0.164    0.184
-## Detection Prevalence    0.284    0.193    0.175    0.164    0.184
-## Balanced Accuracy       1.000    0.998    0.999    1.000    1.000</code></pre>
-<p>For the training methods, cross-validation resampling is used with subsample size of four. On both cases, the accuracy is above 99% (XXX for testing and XXXX for validation) which then confirms the Random Forest approach seems reliable.</p>
+## Detection Prevalence    0.284    0.194    0.174    0.164    0.184
+## Balanced Accuracy       1.000    0.999    0.999    1.000    1.000</code></pre>
+<p>For the training methods, cross-validation resampling is used with subsample size of five as the defaulted 10 does not bring any huge increase in accuracy. On both cases, the accuracy is above 99% (0.9985 for testing and 0.9994 for validation) which then confirms the Random Forest approach seems reliable.</p>
 </div>
 
 

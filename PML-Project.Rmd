@@ -2,26 +2,21 @@
 title: "Predictive Machine Learning: Project"
 output: html_document
 ---
-```{r summary, results='asis'}
-library(knitr)
-library(xtable)
-library(ggplot2)
-library(plyr)
+```{r summary, results='asis', warning=FALSE }
 library(caret)
 library(outliers)
-options(xtable.comment = FALSE,scipen=2)
 ```
 
 #Abstract
-This document analyses the data obtained from the [Human Activity Recognition](http://groupware.les.inf.puc-rio.br/har) project in order to define a predictive model to assess accurately the correctness of the barbell lifts performed by the six participants by means of accelerometers on belt, forearm, arm and dumbell of 6. 
-Results confirm that one of the best models to predict **classe** value is Random Forest with an accuracy over 99%.
+This document analyses the data obtained from the [Human Activity Recognition](http://groupware.les.inf.puc-rio.br/har) project in order to define a predictive model to assess accurately the correctness of the barbell lifts performed by the six participants by means of accelerometers on belt, forearm, arm and dumbell. 
+Results confirm that one of the best models to predict **classe** value is Random Forest using 44 predictors with an accuracy over 99%.
 
 #Data Exploration
 Both the training and tests sets are available on the same folder of the repository.
 ```{r data, results='asis'}
 data <- read.csv("pml-training.csv", row.names = 1) # First column (X) contains measurement ID
 ```
-There are `r dim(data)[2]` variables (including a measurement ID) and `r dim(data)[1]` measurements in the training set.
+There are `r dim(data)[2]` variables (plus the index column *X* that becomes the row index) and `r dim(data)[1]` measurements in the training set.
 There are `r length(unique(data$classe)) ` different values for the outcome *classe* (`r unique(data$classe)`).
 As there are many variables, would be interesting not to pick them all at once to create a model so first of all some removal of meaningless variables due to its emptyness could be performed.
 ```{r data_na_clean, results='asis'}
@@ -34,10 +29,10 @@ By setting a threshold of 80% on filled content per column, the subset reduces t
 data_nzv<-nearZeroVar(data_na_clean,saveMetrics=TRUE)
 data_nzv_clean<-data_na_clean[,data_nzv$nzv==FALSE]
 rm(data_na_clean)
-data_clean<-data_nzv_clean[,-c(1,4)]
+data_clean<-data_nzv_clean[,-c(1,4)] #Removal of user-name and cvtd_timestamp
 rm(data_nzv_clean)
 ```
-A total of `r sum(data_nzv$nzv==TRUE)` column(s) seem not to have much variation. Assuming that there is no correlation between the participants (*user_name*) or the date (*cvtd_timestamp**) and their movements (*classe*), a final subset becomes with `r dim(data_clean)[2]` columns.
+A total of `r sum(data_nzv$nzv==TRUE)` column(s) seem not to have much variation. Assuming that there is no correlation between the participants (*user_name*) or the date (*cvtd_timestamp*) and their movements (*classe*), these two columns also can be discarded. The final subset holds `r dim(data_clean)[2]` columns.
 
 #Modelling
 
@@ -55,40 +50,31 @@ train<-train[-IndexValid,]
 There are two factors that should be addressed so to achieve a good model. The first one is to mitigate the impact of the outliers from within the dataset. The second one is to discard highly correlated covariates which would not bring any added value to the model.
 
 ```{r outliers, results='asis'}
-outliers<-as.data.frame(outlier(train[,-length(train)], logical=TRUE))
+outliers<-as.data.frame(outlier(train[,-length(train)], logical=TRUE)) #Outliers for covariates but output
 #summary(outliers)
-train_out_clean<-as.data.frame(mapply(function(outliers,dataset){ifelse(outliers==TRUE,NA,dataset)},outliers,train[,-length(train)]))
-train<-cbind(train_out_clean,classe=train[,length(train)])
-train<-na.omit(train)
+train_out_clean<-as.data.frame(mapply(function(outliers,dataset){ifelse(outliers==TRUE,NA,dataset)},outliers,train[,-length(train)])) ##Replace NA on the identified outliers
+train<-cbind(train_out_clean,classe=train[,length(train)]) ##Append the missing classe column previously discarded
+train<-na.omit(train) ##Discarding all the measurements that contain any NA
 rm(outliers)
 rm(train_out_clean)
-
-#train_zero<-train[0,]
-#train_out_cleaned<-merge(train_zero,as.data.frame(outliers))
-####
-#BB<-mapply(function(outB,B){ifelse(outB==TRUE,NA,B)},outB,B)
-#B_empty<-B[0,] #Preserve data frame structure
-#dim(BB)<-c(3,3)
-#B_empty<-as.data.frame(BB)
-
 ```
-The outliers are usually causing big impact on models so it can be interesting to just get rid of them. Several options could be applied such as providing an average although for the sake of not populating data which is not truly coming from the observations seems better to replace it with a NA.
+The outliers are usually causing big impact on models so it can be interesting to just get rid of them. Several options could be applied such as providing an average although for the sake of not populating data which is not truly coming from the observations seems better to replace it with a NA and then filter all the measurements that include at leat one NA. For the calculation of the outliers, the output is put aside to perform the analysis and placed back upon the replacement of NAs is performed.
 
+Another source for optimisation comes by the highly correlated covariates.
 ```{r covariate_correlation, results='asis'}
 coe_cor<-abs(cor(train[,-length(train)])) #Predictors correlation but the output (classe)
 diag(coe_cor)<-0 # Removing self-correlations
 coe_cor_high <- findCorrelation(coe_cor, cutoff=0.8, verbose=FALSE)
 train<-train[,-coe_cor_high]
 ```
-At least `r length(coe_cor_high) ` variables seem to have a correlation higher to 80% and would not provide much gain on any predictive method so they are removed.
+At least `r length(coe_cor_high) ` variables seem to have a correlation higher to 80% and would not provide much gain on any predictive method, so they are removed.
 
 Finally the dataset reduced from the original `r dim(data)[2]` variables to `r dim(train)[2]` and having `r dim(train)[1]` measurements from the originally defined training dataset.
 
-**A very good model could be Random Forest with cross-validation.**
-
+A very good model could be Random Forest with cross-validation.
 ```{r random_forest, results='markup', cache=TRUE}
 set.seed(8484)
-modRF <- train(classe ~ ., method='rf', trControl=trainControl(method = "cv", number = 4), train)
+modRF <- train(classe ~ ., method='rf', trControl=trainControl(method = "cv", number = 5), train)
 
 predRF <- predict(modRF, test) #Testing
 cmt<-confusionMatrix(predRF, test$classe)
@@ -97,4 +83,4 @@ predRFVal <- predict(modRF, valid) #Final validation
 cmv<-confusionMatrix(predRFVal, valid$classe)
 cmv
 ```
-For the training methods, cross-validation resampling is used with subsample size of four. On both  cases, the accuracy is above 99% (cmt$overall[1] for testing and cmv$overall[1] for validation) which then confirms the Random Forest approach seems reliable.
+For the training methods, cross-validation resampling is used with subsample size of five as the defaulted 10 does not bring any huge increase in accuracy. On both  cases, the accuracy is above 99% (`r cmt$overall[1]` for testing and `r cmv$overall[1]` for validation) which then confirms the Random Forest approach seems reliable.
